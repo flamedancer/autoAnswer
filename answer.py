@@ -5,7 +5,6 @@
 """
 
 
-# 2022年“合规为本，行稳致远”知识竞赛94.html
 import os
 from bs4 import BeautifulSoup
 import datetime
@@ -16,7 +15,7 @@ driver_dir = '/Users/flame/Downloads'
 # title =>    options => { a => }   answers => []  answer_options => []
 questions = {}
 # 控制答题时间 不能太快
-answer_time = 0 * 60 # 秒
+answer_time = 0 * 60.0 # 秒
 
 
 def get_sample_files():
@@ -54,7 +53,7 @@ def collection(file_path):
                 'answer_options': answer_options,
                 'answers': answers,
             }
-            print('new_question:', question_title)
+            # print('new_question:', question_title)
             print('当前题目数:', len(questions))
             new_add_num += 1
     print(file_path)
@@ -128,6 +127,13 @@ class AutoBrowser:
     def scroll(self):
         self.driver.execute_script("window.scrollBy(0,500)")
 
+    def has_choiced(self, ele):
+        class_names = ['single-exam-radio-active', 'check-i-active']
+        choiced = []
+        for class_name in class_names:
+            choiced += ele.find_elements(By.CLASS_NAME, class_name)
+        return len(choiced)
+
     def do_answer(self):
         WebDriverWait(self.driver, 10000).until(
             EC.visibility_of_element_located((By.CLASS_NAME, 'question-container'))
@@ -136,8 +142,10 @@ class AutoBrowser:
         has_answer = 0
         wrap_names = ['item-wrap', 'checking-item-container']
         miss_questions = set()
+
         for wrap_name in wrap_names:
             for item_wrap in self.driver.find_elements(By.CLASS_NAME, wrap_name):
+                time.sleep(answer_time / 50.0)
                 self.show_ele(item_wrap)
                 # time.sleep(1)
                 print('find item_wrap', wrap_name)
@@ -167,11 +175,12 @@ class AutoBrowser:
                         option = option_item_after.text.strip().split('.', 1)
                         print(option)
                         if question_title in questions:
-                            if option[1].strip() in questions[question_title]['answers']:
+                            if option[1].strip() in questions[question_title]['answers'] and not self.has_choiced(option_item_after):
                                 self.click_elem(option_item_after)
                         else:
                             # if option[0].strip() in ['A', 'B', 'C', 'D']:
-                            self.click_elem(option_item_after)
+                            if not self.has_choiced(option_item_after):
+                                self.click_elem(option_item_after)
 
                 else:
                     option_class = "checking-option__container"
@@ -184,8 +193,7 @@ class AutoBrowser:
                         else:
                             if option == '正确':
                                 self.click_elem(option_item_after)
-                # 放慢答题速度
-                time.sleep(answer_time / 50.0)
+
 
         # time.sleep(1000000)
         print("$$$$$$4", index, has_answer, has_answer * 1.0 / index)
@@ -238,6 +246,8 @@ if __name__ == '__main__':
         auto_browser.login()
         while 1:
             auto_browser.do_answer()
+            if answer_time < 120:
+                input()
             auto_browser.submit()
             # input()
             new_file = auto_browser.save_rst()
