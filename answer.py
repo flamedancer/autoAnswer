@@ -6,20 +6,26 @@
 
 
 import os
+import json
 from bs4 import BeautifulSoup
 import datetime
 result_dir = '/Users/flame/Downloads/合规答题/'
 driver_dir = '/Users/flame/Downloads'
+summary_file = result_dir + 'all.json'
 
 
 # title =>    options => { a => }   answers => []  answer_options => []
 questions = {}
 # 控制答题时间 不能太快
-answer_time = 0 * 60.0 # 秒
+answer_time = 10 * 60.0 # 秒
 
 
 def get_sample_files():
     return ["{}{}".format(result_dir, filename) for filename in os.listdir(result_dir) if filename.endswith('.html')]
+
+def save_to_summary_file():
+    with open(summary_file, 'w') as f:
+        json.dump(questions, f)
 
 
 def collection(file_path):
@@ -54,15 +60,20 @@ def collection(file_path):
                 'answers': answers,
             }
             # print('new_question:', question_title)
-            print('当前题目数:', len(questions))
+            # print('当前题目数:', len(questions))
             new_add_num += 1
     print(file_path)
     print('解析获得题目数：', new_add_num)
 
 
 def do_load_questions():
-    for file in get_sample_files():
-        collection(file)
+    if os.path.isfile(summary_file):
+        with open(summary_file, 'r') as f:
+           questions.update(json.load(f)) 
+    else:
+        for file in get_sample_files():
+            collection(file)
+        save_to_summary_file()
     print('题库共有题目数：', len(questions))
 
 
@@ -145,7 +156,6 @@ class AutoBrowser:
 
         for wrap_name in wrap_names:
             for item_wrap in self.driver.find_elements(By.CLASS_NAME, wrap_name):
-                time.sleep(answer_time / 50.0)
                 self.show_ele(item_wrap)
                 # time.sleep(1)
                 print('find item_wrap', wrap_name)
@@ -162,6 +172,7 @@ class AutoBrowser:
                     except:
                         print('do continue')
                         continue
+                time.sleep(answer_time / 50.0)
                 question_title = question_title.strip()
                 print(index, question_title)
                 if question_title in questions:
@@ -172,10 +183,12 @@ class AutoBrowser:
                 if '判断题' not in item_wrap.find_element(By.CLASS_NAME, "quetion-type").text:
                     option_class = "option-item"
                     for option_item_after in item_wrap.find_elements(By.CLASS_NAME, option_class):
-                        option = option_item_after.text.strip().split('.', 1)
-                        print(option)
+                        option_index, option = list(map(str.strip, option_item_after.text.split('.', 1)))
+                        choiced = self.has_choiced(option_item_after)
+                        print(option_index, option)
                         if question_title in questions:
-                            if option[1].strip() in questions[question_title]['answers'] and not self.has_choiced(option_item_after):
+                            if (option in questions[question_title]['answers'] and not choiced) or(
+                                option.strip() not in questions[question_title]['answers'] and choiced):
                                 self.click_elem(option_item_after)
                         else:
                             # if option[0].strip() in ['A', 'B', 'C', 'D']:
@@ -196,17 +209,18 @@ class AutoBrowser:
 
 
         # time.sleep(1000000)
-        print("$$$$$$4", index, has_answer, has_answer * 1.0 / index)
+        print("$$$$$$4", index, has_answer, has_answer * 100.0 / index)
         print("$$$$获得新题目数：", index - has_answer, len(miss_questions))
         for miss_question in miss_questions:
             print("miss...:", miss_question)
+        return len(miss_questions)
 
 
     def submit(self):
         self.scroll()
         # time.sleep(2)
         self.click_elem(self.driver.find_element(By.CLASS_NAME, "submit-button"))
-        WebDriverWait(self.driver, 10000).until(      
+        WebDriverWait(self.driver, 10000).until(
             EC.visibility_of_element_located((By.CLASS_NAME, "test-button")))
 
 
@@ -218,16 +232,18 @@ class AutoBrowser:
             pass
 
     def save_rst(self):
-        self.close_win_bnt()
         res = self.driver.execute_script('return document.documentElement.outerHTML')
         new_file = '{}{}.html'.format(result_dir, datetime.datetime.now().strftime('%Y%m%d%H%M%S'))
         with open(new_file, 'w', newline='') as f:   # 根据5楼的评论，添加newline=''
             f.write(res)
         return new_file
 
+    def logout(self):
+         self.driver.delete_cookie('ko_token')
+
     def next_answer(self):
         # input()
-        self.click_elem(self.driver.find_element(By.CLASS_NAME, "test-button"))
+        self.driver.find_element(By.CLASS_NAME, "test-button").click()
 
 
 
@@ -236,24 +252,30 @@ class AutoBrowser:
 
 
 if __name__ == '__main__':
-    # do_load_questions()
-    # collection(result_dir + '20221115213507.html')
-    os.environ['PATH'] = os.path.sep + driver_dir
+    os.environ['PATH'] += (os.path.pathsep + driver_dir)
+    print(os.environ['PATH'])
     do_load_questions()
-
-    auto_browser = AutoBrowser()
+    # input()
+    auto_browser = None
     try:
+        auto_browser = AutoBrowser()
         auto_browser.login()
         while 1:
-            auto_browser.do_answer()
-            if answer_time < 120:
-                input()
+            miss_num = auto_browser.do_answer()
+            # if answer_time < 120:
+            #     input()
             auto_browser.submit()
-            # input()
-            new_file = auto_browser.save_rst()
-            collection(new_file)
-            auto_browser.next_answer()
+            auto_browser.close_win_bnt()
+            if miss_num:
+                collection(auto_browser.save_rst())
+                save_to_summary_file()
+            cmd = input().strip()
+            if cmd:
+                auto_browser.logout()
+                auto_browser.login()
+            else:
+                auto_browser.next_answer()
     finally:
-        # pass
-        auto_browser.release()
+        if auto_browser:
+            auto_browser.release()
 
